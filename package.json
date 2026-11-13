@@ -1,0 +1,41 @@
+{
+  "name": "vulns-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI agents search 12,000+ publicly disclosed HackerOne vulnerability reports: real bugs, real techniques.",
+  "type": "module",
+  "bin": {
+    "vulns-mcp": "src/index.js"
+  },
+  "main": "src/index.js",
+  "files": [
+    "src",
+    "data",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test",
+    "test:network": "VULNS_TEST_NETWORK=1 node --test",
+    "inspect": "npx @modelcontextprotocol/inspector node src/index.js",
+    "sync-data": "node scripts/sync-data.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "hackerone",
+    "bug-bounty",
+    "security",
+    "vulnerabilities",
+    "pentest",
+    "ai-agents"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}
