@@ -72,7 +72,7 @@ test('search_reports with no query lists the newest', async () => {
 
 test('search_reports resolves programs and CWE ids', async () => {
   const { text } = await call('search_reports', { program: 'gitlab', weakness: 'CWE-918', sort: 'votes', limit: 3 });
-  assert.match(text, /program GitLab \(gitlab\)/);
+  assert.match(text, /program GitLab \[gitlab\]/);
   assert.match(text, /CWE-918/);
 });
 
@@ -115,10 +115,52 @@ test('list_categories and get_category_guide', async () => {
 
 test('get_program and archive_stats', async () => {
   const program = await call('get_program', { program: 'shopify', examples: 2 });
-  assert.match(program.text, /^# Shopify \(shopify\)/);
+  assert.match(program.text, /^# Shopify \(shopify\) on HackerOne/);
   const stats = await call('archive_stats');
-  assert.match(stats.text, /publicly disclosed HackerOne reports/);
+  assert.match(stats.text, /publicly disclosed bug bounty reports \(HackerOne [\d,]+ · Bugcrowd [\d,]+\)/);
   assert.match(stats.text, /bundled snapshot/);
+});
+
+test('search_reports covers Bugcrowd and filters by platform', async () => {
+  const { text } = await call('search_reports', { platform: 'bugcrowd', limit: 5 });
+  assert.match(text, /reports for Bugcrowd/);
+  const ids = [...text.matchAll(/^\d+\. \[([^\]]+)\]/gm)].map((m) => m[1]);
+  assert.equal(ids.length, 5);
+  for (const id of ids) assert.match(id, /^bc-[0-9a-f]{10}$/);
+  assert.doesNotMatch(text, /hackerone\.com/);
+  assert.match(text, /https:\/\/bugcrowd\.com\/disclosures\//);
+});
+
+test('search_reports mixes both platforms and links each to its own site', async () => {
+  const { text } = await call('search_reports', { query: 'ssrf', limit: 50 });
+  assert.match(text, /\(HackerOne [\d,]+ · Bugcrowd [\d,]+\)/);
+  for (const block of text.split('\n\n').filter((b) => /^\d+\. \[/.test(b))) {
+    if (/^\d+\. \[bc-/.test(block)) assert.match(block, /bugcrowd\.com\/disclosures\//);
+    else assert.match(block, /hackerone\.com\/reports\//);
+  }
+});
+
+test('get_report reads a Bugcrowd report by id or URL without the network', async () => {
+  const byId = await call('get_report', { id: 'bc-495cc609bd', include_full_text: false });
+  assert.equal(byId.isError, false);
+  assert.match(byId.text, /^# \[bc-495cc609bd\] /);
+  assert.match(byId.text, /Platform: Bugcrowd/);
+  assert.match(byId.text, /Bugcrowd P\d/);
+  assert.match(byId.text, /URL: https:\/\/bugcrowd\.com\/disclosures\/495cc609-bd77/);
+  assert.doesNotMatch(byId.text, /hackerone\.com/);
+  const byUrl = await call('get_report', { id: 'https://bugcrowd.com/disclosures/495cc609-bd77-4f03-a750-f6dbf730673f/1-click-remote-code-execution-via-link-embed', include_full_text: false });
+  assert.match(byUrl.text, /^# \[bc-495cc609bd\] /);
+  const missing = await call('get_report', { id: 'bc-0000000000' });
+  assert.equal(missing.isError, true);
+});
+
+test('find_similar and get_program work for Bugcrowd', async () => {
+  const similar = await call('find_similar', { id: 'bc-495cc609bd', limit: 3 });
+  assert.match(similar.text, /Reports similar to \[bc-495cc609bd\]/);
+  const program = await call('get_program', { program: 'asana', platform: 'bugcrowd', examples: 2 });
+  assert.match(program.text, /^# Asana \(asana\) on Bugcrowd/);
+  assert.match(program.text, /https:\/\/bugcrowd\.com\/engagements\/asana/);
+  assert.match(program.text, /## Highest bounties/);
 });
 
 test('get_report reads the full write-up from HackerOne', { skip: process.env.VULNS_TEST_NETWORK !== '1' && 'set VULNS_TEST_NETWORK=1' }, async () => {
@@ -126,4 +168,12 @@ test('get_report reads the full write-up from HackerOne', { skip: process.env.VU
   assert.equal(isError, false);
   assert.match(text, /<<<WRITEUP/);
   assert.match(text, /WRITEUP>>>/);
+});
+
+test('get_report reads the full disclosure summary from Bugcrowd', { skip: process.env.VULNS_TEST_NETWORK !== '1' && 'set VULNS_TEST_NETWORK=1' }, async () => {
+  const { text, isError } = await call('get_report', { id: 'bc-495cc609bd', max_chars: 1000 });
+  assert.equal(isError, false);
+  assert.match(text, /## Disclosure summary by /);
+  assert.match(text, /<<<WRITEUP\n[\s\S]+\nWRITEUP>>>/);
+  assert.match(text, /offset=1000/);
 });

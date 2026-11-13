@@ -93,7 +93,7 @@ export class SearchIndex {
         weakness: r.weakness ? `${r.weakness.name} ${r.weakness.cwe || ''}` : '',
         category: `${r.category.id} ${r.category.short} ${r.category.name}`,
         topics: r.topics.map((t) => `${t.id} ${t.name}`).join(' '),
-        program: r.program ? `${r.program.handle} ${r.program.name}` : '',
+        program: `${r.platform} ${r.program ? `${r.program.handle} ${r.program.name}` : ''}`,
         summary: r.summary || '',
       };
       const tf = new Map();

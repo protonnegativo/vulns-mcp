@@ -1,15 +1,17 @@
-// Loads the Vulns archive: a compact index of every publicly disclosed HackerOne report,
-// plus per-year summaries and the category taxonomy.
+// Loads the Vulns archive: a compact index of every publicly disclosed HackerOne report
+// (reports.json + per-year summaries), the Bugcrowd disclosures (bugcrowd.json) and the
+// category taxonomy.
 //
 // Sources, in order of preference:
-//   1. VULNS_DATA_DIR / --data-dir   a local folder with reports.json, taxonomy.json, summaries/
+//   1. VULNS_DATA_DIR / --data-dir   a local folder with reports.json, taxonomy.json, summaries/,
+//                                    bugcrowd.json
 //   2. the on-disk cache            refreshed from VULNS_DATA_URL (default https://vulns.today/data)
 //   3. the snapshot bundled in this package (./data)
 //
 // The server starts from the freshest copy it already has, then refreshes from the network in
 // the background, so a slow or unreachable network never delays the first answer.
 
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -42,7 +44,16 @@ async function readFolder(dir) {
     const file = path.join(dir, 'summaries', `${year}.json`);
     if (existsSync(file)) Object.assign(summaries, await readJson(file));
   }
-  return { index, taxonomy, summaries };
+  // Bugcrowd disclosures live in their own file (optional: older site builds don't have it).
+  const bugcrowdFile = path.join(dir, 'bugcrowd.json');
+  const bugcrowd = existsSync(bugcrowdFile) ? await readJson(bugcrowdFile) : null;
+  return { index, taxonomy, summaries, bugcrowd };
+}
+
+// How fresh a copy is: the newest of its HackerOne fetch and its Bugcrowd build.
+export function freshness(raw) {
+  const stamps = [raw.index.meta.fetchedAt, raw.bugcrowd?.meta?.generatedAt].filter(Boolean).map(String);
+  return stamps.sort().at(-1) || '';
 }
 
 async function fetchJson(url) {
@@ -55,13 +66,17 @@ async function fetchJson(url) {
 }
 
 // Downloads a fresh copy into the cache folder. Returns null when the remote copy is not newer.
-async function download(baseUrl, knownFetchedAt) {
+async function download(baseUrl, knownFreshness) {
   const index = await fetchJson(`${baseUrl}/reports.json`);
-  if (knownFetchedAt && index.meta.fetchedAt <= knownFetchedAt) return null;
+  let bugcrowd = null;
+  try { bugcrowd = await fetchJson(`${baseUrl}/bugcrowd.json`); } catch { /* site without Bugcrowd data */ }
+  if (knownFreshness && freshness({ index, bugcrowd }) <= knownFreshness) return null;
   let taxonomy = null;
   try { taxonomy = await fetchJson(`${baseUrl}/taxonomy.json`); } catch { /* older site build: use the bundled taxonomy */ }
   const files = { 'reports.json': index };
   if (taxonomy) files['taxonomy.json'] = taxonomy;
+  if (bugcrowd) files['bugcrowd.json'] = bugcrowd;
+  else await rm(path.join(cacheDir(), 'bugcrowd.json'), { force: true });
   for (const year of index.meta.summaryYears || []) {
     files[`summaries/${year}.json`] = await fetchJson(`${baseUrl}/summaries/${year}.json`);
   }
@@ -96,7 +111,7 @@ export async function loadArchive({ dataDir, offline } = {}) {
     try { candidates.push({ raw: await readFolder(cacheDir()), source: `cache ${cacheDir()}` }); } catch (err) { log('ignoring unreadable cache:', err.message); }
   }
   candidates.push({ raw: await readFolder(BUNDLED_DIR), source: 'bundled snapshot' });
-  candidates.sort((a, b) => String(b.raw.index.meta.fetchedAt).localeCompare(String(a.raw.index.meta.fetchedAt)));
+  candidates.sort((a, b) => freshness(b.raw).localeCompare(freshness(a.raw)));
   const best = candidates[0];
 
   offline = offline || process.env.VULNS_OFFLINE === '1';
@@ -105,7 +120,7 @@ export async function loadArchive({ dataDir, offline } = {}) {
     if (offline) return null;
     if (Date.now() - (await lastChecked()) < REFRESH_AFTER_MS) return null;
     try {
-      const raw = await download(baseUrl, best.raw.index.meta.fetchedAt);
+      const raw = await download(baseUrl, freshness(best.raw));
       if (!raw) {
         await mkdir(cacheDir(), { recursive: true });
         await writeFile(path.join(cacheDir(), 'checked-at'), new Date().toISOString());
@@ -128,21 +143,33 @@ const dateStr = (int) => {
   return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 };
 
+export const PLATFORMS = { hackerone: 'HackerOne', bugcrowd: 'Bugcrowd' };
+
 // Turns the compact index into report objects and lookup tables.
-export function decodeArchive({ index, taxonomy, summaries }) {
+export function decodeArchive({ index, taxonomy, summaries, bugcrowd }) {
   const col = Object.fromEntries(index.columns.map((name, i) => [name, i]));
   const categories = taxonomy.categories.map((c) => ({ ...c, reports: [] }));
   const topics = taxonomy.topics.map((t) => ({ ...t, reports: [] }));
-  const programs = index.programs.map(([handle, name, industry]) => ({ handle, name: name || handle, industry: industry || null, reports: [] }));
+  const programs = index.programs.map(([handle, name, industry]) => ({
+    platform: 'hackerone', handle, name: name || handle, industry: industry || null, url: `https://hackerone.com/${handle}`, reports: [],
+  }));
   const weaknesses = index.weaknesses.map(([name, cwe]) => ({ name, cwe: cwe || null }));
+  const link = (report) => {
+    report.program?.reports.push(report);
+    report.category.reports.push(report);
+    for (const t of report.topics) t.reports.push(report);
+    return report;
+  };
 
   const reports = index.rows.map((row) => {
     const program = programs[row[col.program]] || null;
     const category = categories[row[col.category]] || categories.at(-1);
     const reportTopics = (row[col.topics] || []).map((i) => topics[i]).filter(Boolean);
     const disclosed = row[col.disclosed];
-    const report = {
+    return link({
+      platform: 'hackerone',
       id: row[col.id],
+      url: `https://hackerone.com/reports/${row[col.id]}`,
       title: row[col.title],
       program,
       weakness: weaknesses[row[col.weakness]] || null,
@@ -159,13 +186,55 @@ export function decodeArchive({ index, taxonomy, summaries }) {
       cves: row[col.cves] || [],
       topics: reportTopics,
       summary: summaries[row[col.id]] || null,
-    };
-    program?.reports.push(report);
-    category.reports.push(report);
-    for (const t of reportTopics) t.reports.push(report);
-    return report;
+    });
   });
 
+  // Bugcrowd: no weakness, CWE, CVE, CVSS or votes are published; the category comes from the
+  // title, the severity from the P1–P5 priority, and `summary` is the start of the researcher's
+  // summary (the whole text is on the disclosure page).
+  const platformCounts = { hackerone: reports.length, bugcrowd: 0 };
+  if (bugcrowd?.rows?.length) {
+    const bc = Object.fromEntries(bugcrowd.columns.map((name, i) => [name, i]));
+    const bcPrograms = (bugcrowd.programs || []).map(([code, name]) => ({
+      platform: 'bugcrowd', handle: code, name: name || code, industry: null, url: `https://bugcrowd.com/engagements/${code}`, reports: [],
+    }));
+    programs.push(...bcPrograms);
+    for (const row of bugcrowd.rows) {
+      const disclosed = row[bc.disclosed];
+      reports.push(link({
+        platform: 'bugcrowd',
+        id: String(row[bc.id]).toLowerCase(),
+        url: row[bc.url],
+        title: row[bc.title],
+        program: bcPrograms[row[bc.program]] || null,
+        weakness: null,
+        category: categories[row[bc.category]] || categories.at(-1),
+        severity: taxonomy.severities[row[bc.severity]] || 'unrated',
+        cvss: null,
+        bounty: row[bc.bounty] || 0,
+        votes: 0,
+        disclosed: dateStr(disclosed),
+        disclosedInt: disclosed || 0,
+        submitted: dateStr(row[bc.submitted]),
+        reporter: bugcrowd.reporters?.[row[bc.reporter]] || null,
+        state: taxonomy.states[row[bc.state]] || 'other',
+        cves: [],
+        topics: (row[bc.topics] || []).map((i) => topics[i]).filter(Boolean),
+        summary: row[bc.summary] || null,
+      }));
+      platformCounts.bugcrowd++;
+    }
+    reports.sort((a, b) => b.disclosedInt - a.disclosedInt || String(b.id).localeCompare(String(a.id)));
+  }
+
   const byId = new Map(reports.map((r) => [r.id, r]));
-  return { meta: index.meta, reports, byId, categories, topics, programs, severities: taxonomy.severities, states: taxonomy.states };
+  const meta = {
+    ...index.meta,
+    count: reports.length,
+    platforms: {
+      hackerone: { count: platformCounts.hackerone, updated: index.meta.fetchedAt },
+      ...(platformCounts.bugcrowd ? { bugcrowd: { count: platformCounts.bugcrowd, updated: bugcrowd.meta?.generatedAt || null } } : {}),
+    },
+  };
+  return { meta, reports, byId, categories, topics, programs, severities: taxonomy.severities, states: taxonomy.states };
 }

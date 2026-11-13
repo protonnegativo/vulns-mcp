@@ -1,7 +1,7 @@
 {
   "name": "vulns-mcp",
-  "version": "0.1.0",
-  "description": "MCP server that lets AI agents search 12,000+ publicly disclosed HackerOne vulnerability reports: real bugs, real techniques.",
+  "version": "0.2.0",
+  "description": "MCP server that lets AI agents search 13,000+ publicly disclosed bug bounty reports from HackerOne and Bugcrowd: real bugs, real techniques.",
   "type": "module",
   "author": "protonnegativo",
   "homepage": "https://github.com/protonnegativo/vulns-mcp#readme",
@@ -33,6 +33,7 @@
     "mcp",
     "model-context-protocol",
     "hackerone",
+    "bugcrowd",
     "bug-bounty",
     "security",
     "vulnerabilities",

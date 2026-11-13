@@ -4,8 +4,8 @@
 // Usage: npm run sync-data -- <path to the site's data folder>
 //        e.g. npm run sync-data -- ../vulns.today/site/data
 //
-// The folder must contain reports.json, taxonomy.json and summaries/<year>.json, as written
-// by the site's `npm run build`.
+// The folder must contain reports.json, taxonomy.json and summaries/<year>.json, plus
+// bugcrowd.json when the site has Bugcrowd data, as written by the site's `npm run build`.
 
 import { readFile, writeFile, mkdir, rm, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -33,5 +33,8 @@ for (const year of index.meta.summaryYears || []) {
   await copyFile(path.join(from, 'summaries', `${year}.json`), path.join(OUT, 'summaries', `${year}.json`));
 }
 await copyFile(path.join(from, 'taxonomy.json'), path.join(OUT, 'taxonomy.json'));
+if (existsSync(path.join(from, 'bugcrowd.json'))) await copyFile(path.join(from, 'bugcrowd.json'), path.join(OUT, 'bugcrowd.json'));
+else await rm(path.join(OUT, 'bugcrowd.json'), { force: true });
 await writeFile(path.join(OUT, 'reports.json'), JSON.stringify(index));
-console.log(`Bundled ${index.meta.count} reports (fetched ${index.meta.fetchedAt}) into ${OUT}`);
+const bugcrowd = existsSync(path.join(OUT, 'bugcrowd.json')) ? JSON.parse(await readFile(path.join(OUT, 'bugcrowd.json'), 'utf8')) : null;
+console.log(`Bundled ${index.meta.count} HackerOne reports (fetched ${index.meta.fetchedAt})${bugcrowd ? ` and ${bugcrowd.rows.length} Bugcrowd reports (built ${bugcrowd.meta.generatedAt})` : ''} into ${OUT}`);
