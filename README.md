@@ -1,5 +1,7 @@
 # vulns-mcp
 
+[![npm](https://img.shields.io/npm/v/vulns-mcp)](https://www.npmjs.com/package/vulns-mcp)
+
 **Give your AI agent the bug bounty archive.** An [MCP](https://modelcontextprotocol.io) server that lets Claude, Cursor and any other MCP client search **12,754 publicly disclosed HackerOne reports**: real bugs, found by real researchers, in real programs, with the write-ups that explain how.
 
 Part of [Vulns](https://vulns.today), which tracks what got hacked today, and how.
@@ -23,12 +25,12 @@ agent ▸ search_reports(query: "ssrf webhook", sort: "votes")
 
 ## Install
 
-You need Node.js 18 or newer. `npx` installs the server straight from this GitHub repo, so there's nothing else to set up. The first start takes a little longer while it downloads; after that it runs from npx's cache.
+You need Node.js 18 or newer. `npx` downloads [the package from npm](https://www.npmjs.com/package/vulns-mcp), so there's nothing else to set up. The first start takes a little longer while it downloads; after that it runs from npx's cache.
 
 ### Claude Code
 
 ```bash
-claude mcp add vulns -- npx -y github:protonnegativo/vulns-mcp
+claude mcp add vulns -- npx -y vulns-mcp
 ```
 
 Add `--scope user` to make it available in every project.
@@ -42,7 +44,7 @@ Open **Settings → Developer → Edit Config**. Then add the server to `claude_
   "mcpServers": {
     "vulns": {
       "command": "npx",
-      "args": ["-y", "github:protonnegativo/vulns-mcp"]
+      "args": ["-y", "vulns-mcp"]
     }
   }
 }
@@ -59,7 +61,7 @@ Add this to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` to use it in one proj
   "mcpServers": {
     "vulns": {
       "command": "npx",
-      "args": ["-y", "github:protonnegativo/vulns-mcp"]
+      "args": ["-y", "vulns-mcp"]
     }
   }
 }
@@ -75,7 +77,7 @@ Add this to `.vscode/mcp.json`:
     "vulns": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "github:protonnegativo/vulns-mcp"]
+      "args": ["-y", "vulns-mcp"]
     }
   }
 }
@@ -149,7 +151,7 @@ Every result carries the report's `https://hackerone.com/reports/<id>` link, so 
 | `VULNS_CACHE_DIR` | `~/.cache/vulns-mcp` | Where refreshed data is stored. |
 | `VULNS_FULL_TEXT=0` | on | Don't let `get_report` contact hackerone.com. You still get the metadata and summaries. |
 
-To pass an option in Claude Code, add it after the command: `claude mcp add vulns -- npx -y github:protonnegativo/vulns-mcp --offline`. To set a variable, use `-e`: `claude mcp add vulns -e VULNS_FULL_TEXT=0 -- npx -y github:protonnegativo/vulns-mcp`.
+To pass an option in Claude Code, add it after the command: `claude mcp add vulns -- npx -y vulns-mcp --offline`. To set a variable, use `-e`: `claude mcp add vulns -e VULNS_FULL_TEXT=0 -- npx -y vulns-mcp`.
 
 ## Privacy and safety
 
@@ -199,7 +201,7 @@ test/             end-to-end tests over stdio
 
 ## Roadmap
 
-- [ ] Publish to npm, so the command gets shorter: `npx -y vulns-mcp`
+- [x] Publish to npm
 - [ ] Remote server over Streamable HTTP, so nothing needs installing
 - [ ] Semantic search with embeddings, next to BM25
 - [ ] A "today" tool for the latest disclosures, plus a daily data refresh

@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "MCP server that lets AI agents search 12,000+ publicly disclosed HackerOne vulnerability reports: real bugs, real techniques.",
   "type": "module",
+  "author": "protonnegativo",
+  "homepage": "https://github.com/protonnegativo/vulns-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/protonnegativo/vulns-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/protonnegativo/vulns-mcp/issues"
+  },
   "bin": {
     "vulns-mcp": "src/index.js"
   },
