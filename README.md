@@ -23,14 +23,12 @@ agent ▸ search_reports(query: "ssrf webhook", sort: "votes")
 
 ## Install
 
-> **Not on npm yet.** Until `vulns-mcp` is published, use [From source](#from-source). The `npx` commands below will work once it's published.
-
-You need Node.js 18 or newer.
+You need Node.js 18 or newer. `npx` installs the server straight from this GitHub repo, so there's nothing else to set up. The first start takes a little longer while it downloads; after that it runs from npx's cache.
 
 ### Claude Code
 
 ```bash
-claude mcp add vulns -- npx -y vulns-mcp
+claude mcp add vulns -- npx -y github:protonnegativo/vulns-mcp
 ```
 
 Add `--scope user` to make it available in every project.
@@ -44,7 +42,7 @@ Open **Settings → Developer → Edit Config**. Then add the server to `claude_
   "mcpServers": {
     "vulns": {
       "command": "npx",
-      "args": ["-y", "vulns-mcp"]
+      "args": ["-y", "github:protonnegativo/vulns-mcp"]
     }
   }
 }
@@ -61,7 +59,7 @@ Add this to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` to use it in one proj
   "mcpServers": {
     "vulns": {
       "command": "npx",
-      "args": ["-y", "vulns-mcp"]
+      "args": ["-y", "github:protonnegativo/vulns-mcp"]
     }
   }
 }
@@ -77,7 +75,7 @@ Add this to `.vscode/mcp.json`:
     "vulns": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "vulns-mcp"]
+      "args": ["-y", "github:protonnegativo/vulns-mcp"]
     }
   }
 }
@@ -151,7 +149,7 @@ Every result carries the report's `https://hackerone.com/reports/<id>` link, so 
 | `VULNS_CACHE_DIR` | `~/.cache/vulns-mcp` | Where refreshed data is stored. |
 | `VULNS_FULL_TEXT=0` | on | Don't let `get_report` contact hackerone.com. You still get the metadata and summaries. |
 
-To pass an option in Claude Code, add it after the command: `claude mcp add vulns -- npx -y vulns-mcp --offline`. To set a variable, use `-e`: `claude mcp add vulns -e VULNS_FULL_TEXT=0 -- npx -y vulns-mcp`.
+To pass an option in Claude Code, add it after the command: `claude mcp add vulns -- npx -y github:protonnegativo/vulns-mcp --offline`. To set a variable, use `-e`: `claude mcp add vulns -e VULNS_FULL_TEXT=0 -- npx -y github:protonnegativo/vulns-mcp`.
 
 ## Privacy and safety
 
@@ -201,7 +199,7 @@ test/             end-to-end tests over stdio
 
 ## Roadmap
 
-- [ ] Publish to npm
+- [ ] Publish to npm, so the command gets shorter: `npx -y vulns-mcp`
 - [ ] Remote server over Streamable HTTP, so nothing needs installing
 - [ ] Semantic search with embeddings, next to BM25
 - [ ] A "today" tool for the latest disclosures, plus a daily data refresh
