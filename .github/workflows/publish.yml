@@ -1,0 +1,48 @@
+# Publishes vulns-mcp to npm from GitHub, with no token and no one-time code: npm trusts this
+# workflow through OIDC ("Trusted Publisher" on npmjs.com → package vulns-mcp → owner
+# protonnegativo, repository vulns-mcp, workflow publish.yml). The package gets a provenance
+# statement that links it to this repository and commit.
+#
+# Run it by hand (Actions → "Publish to npm" → Run workflow, or `gh workflow run publish.yml`)
+# after bumping the version in package.json and pushing. It stops if that version is already on npm.
+
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # lets npm verify that the publish comes from this workflow
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer; runners can ship an older one.
+      - name: Update npm
+        run: npm install -g npm@^11.5.1
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Stop if this version is already published
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "vulns-mcp@$VERSION" version >/dev/null 2>&1; then
+            echo "vulns-mcp@$VERSION is already on npm. Bump the version in package.json first."
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish --provenance --access public
