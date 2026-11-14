@@ -12,6 +12,7 @@ const FIELDS = {
   category: 2,
   topics: 1.5,
   program: 1.5,
+  playbook: 1.5,
   summary: 1,
 };
 
@@ -95,6 +96,9 @@ export class SearchIndex {
         topics: r.topics.map((t) => `${t.id} ${t.name}`).join(' '),
         program: `${r.platform} ${r.program ? `${r.program.handle} ${r.program.name}` : ''}`,
         summary: r.summary || '',
+        // The techniques detected in the write-up and the sentence that explains a bypass, so
+        // "dns rebinding" or "waf bypass" find the reports that did it.
+        playbook: r.playbook ? [...(r.playbook.tags || []).map((t) => t.replace(/-/g, ' ')), r.playbook.bypass || ''].join(' ') : '',
       };
       const tf = new Map();
       let len = 0;

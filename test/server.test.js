@@ -38,11 +38,17 @@ const call = async (name, args = {}) => {
 test('lists the tools', async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ['archive_stats', 'find_similar', 'get_category_guide', 'get_program', 'get_report', 'list_categories', 'search_reports']);
+  assert.deepEqual(names, ['archive_stats', 'find_similar', 'get_category_guide', 'get_program', 'get_report', 'list_categories', 'list_techniques', 'search_reports']);
   for (const t of tools) {
     assert.ok(t.description.length > 40, `${t.name} has a description`);
     assert.equal(t.annotations?.readOnlyHint, true, `${t.name} is read-only`);
   }
+});
+
+test('search_reports rejects unknown techniques', async () => {
+  const { text, isError } = await call('search_reports', { technique: ['not-a-technique'] });
+  assert.equal(isError, true);
+  assert.match(text, /list_techniques/);
 });
 
 test('ships server instructions', () => {

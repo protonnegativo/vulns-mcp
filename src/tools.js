@@ -23,7 +23,22 @@ const platformName = (id) => PLATFORMS[id] || id;
 const programLabel = (p) => (p.platform === 'hackerone' ? p.name : `${p.name} (${platformName(p.platform)})`);
 const severityText = (r) => r.severity + (r.cvss ? ` ${r.cvss}` : '') + (r.platform === 'bugcrowd' && PRIORITY[r.severity] ? ` (${PRIORITY[r.severity]})` : '');
 
-function reportBlock(r, n, { summaryChars = 320 } = {}) {
+// What the write-up was found to contain (site's classify-reports.mjs): technique tags, flags,
+// payload snippets copied from the text, and the sentence that explains a bypass.
+const HAS = ['payload', 'http-request', 'steps', 'poc-code', 'bypass', 'video', 'writeup'];
+
+function techniqueLines(p, { full = false, indent = '' } = {}) {
+  const out = [];
+  const facts = [p.tags?.length ? `Techniques: ${p.tags.join(', ')}` : null, p.has?.length ? `has ${p.has.join(', ')}` : null].filter(Boolean);
+  if (facts.length) out.push(`${indent}${facts.join(' · ')}`);
+  if (p.bypass) out.push(`${indent}Bypass: ${full ? p.bypass : clip(p.bypass, 220)}`);
+  const payloads = p.payloads || [];
+  for (const x of full ? payloads : payloads.slice(0, 1)) out.push(`${indent}Payload: ${full ? x : clip(x, 160)}`);
+  if (!full && payloads.length > 1) out.push(`${indent}(+${payloads.length - 1} more in get_report)`);
+  return out;
+}
+
+function reportBlock(r, n, { summaryChars = 320, techniques = true } = {}) {
   const facts = [
     platformName(r.platform),
     r.program?.name || (r.platform === 'bugcrowd' ? 'undisclosed program' : null),
@@ -35,6 +50,7 @@ function reportBlock(r, n, { summaryChars = 320 } = {}) {
   ].filter(Boolean);
   const lines = [`${n}. [${r.id}] ${r.title}`, `   ${facts.join(' · ')}`];
   if (r.cves.length) lines.push(`   CVEs: ${r.cves.join(', ')}`);
+  if (techniques && r.playbook) lines.push(...techniqueLines(r.playbook, { indent: '   ' }));
   if (r.summary && summaryChars) lines.push(`   Summary: ${clip(r.summary.replace(/\s+/g, ' '), summaryChars)}`);
   lines.push(`   ${r.url}`);
   return lines.join('\n');
@@ -207,6 +223,19 @@ function buildFilter(db, args) {
     checks.push((r) => !!r.summary);
     notes.push('with summary');
   }
+  if (args.technique?.length) {
+    const wanted = [...new Set(args.technique.map((t) => String(t).trim().toLowerCase().replace(/[\s_]+/g, '-')))];
+    const known = new Set(db.techniques.map((t) => t.id));
+    const unknown = wanted.filter((t) => !known.has(t));
+    if (unknown.length) return { error: `Unknown technique ${unknown.map((t) => `"${t}"`).join(', ')}. Call list_techniques for the ids (e.g. dns-rebinding, csp-bypass, waf-bypass, cloud-metadata, race-condition).` };
+    checks.push((r) => !!r.playbook?.tags && wanted.every((t) => r.playbook.tags.includes(t)));
+    notes.push(`technique ${wanted.join(' + ')}`);
+  }
+  if (args.has?.length) {
+    const wanted = [...new Set(args.has)];
+    checks.push((r) => !!r.playbook?.has && wanted.every((x) => r.playbook.has.includes(x)));
+    notes.push(`has ${wanted.join(' + ')}`);
+  }
   return { test: (r) => checks.every((fn) => fn(r)), notes };
 }
 
@@ -245,7 +274,9 @@ export function registerTools(server, getArchive) {
     description: [
       'Search the archive of publicly disclosed bug bounty reports from HackerOne and Bugcrowd (real bugs found in real programs).',
       'Use it to find prior art for a technique, a technology, a target or a bug class: e.g. "ssrf pdf generator", "graphql idor", "oauth redirect_uri", "cache poisoning", "jwt none algorithm", "CVE-2021-44228".',
-      'Full-text BM25 over titles, weakness, class, program and the summary; acronyms (xss, sqli, ssrf, idor, rce, ato…) are expanded.',
+      'Full-text BM25 over titles, weakness, class, program, summary and the techniques detected in each write-up; acronyms (xss, sqli, ssrf, idor, rce, ato…) are expanded.',
+      'Filter by `technique` (e.g. ["dns-rebinding"], ["csp-bypass"]; see list_techniques) and by what the write-up contains with `has` (e.g. ["payload"] for reports that show the payload, ["bypass"] for ones that defeated a defense).',
+      'Results show each report\'s techniques, the sentence that explains the bypass and a payload from the write-up, when there are.',
       'Combine with filters. Leave `query` empty and sort by "newest" for the latest disclosures, or by "votes"/"bounty" for the most notable ones.',
       'Each result has an id (a number for HackerOne, "bc-…" for Bugcrowd): pass it to get_report for the full text or to find_similar.',
     ].join(' '),
@@ -265,6 +296,8 @@ export function registerTools(server, getArchive) {
       min_cvss: z.number().min(0).max(10).optional().describe('Minimum CVSS score. HackerOne only.'),
       state: z.enum(['resolved', 'informative', 'duplicate', 'not-applicable', 'spam', 'other']).optional().describe('Report outcome. Most disclosed reports are "resolved".'),
       has_summary: z.boolean().optional().describe('Only reports that have a summary.'),
+      technique: z.array(z.string()).optional().describe('Only reports tagged with all of these techniques, e.g. ["dns-rebinding"], ["ssti"], ["waf-bypass","reflected-xss"]. Ids from list_techniques.'),
+      has: z.array(z.enum(HAS)).optional().describe('Only reports whose write-up contains all of these: payload (a payload is shown), http-request, steps (to reproduce), poc-code, bypass (a defense was defeated), video, writeup (a full write-up is public).'),
       sort: z.enum(SORTS).optional().describe('Default: "relevance" when there is a query, otherwise "newest". "votes" and "cvss" only rank HackerOne reports (Bugcrowd publishes neither).'),
       limit: z.number().int().min(1).max(50).optional().describe('Results to return (default 10, max 50).'),
       offset: z.number().int().min(0).optional().describe('Skip this many results, for paging.'),
@@ -304,7 +337,7 @@ export function registerTools(server, getArchive) {
   tool('get_report', {
     title: 'Read a report',
     description: [
-      'Get one disclosed report with its archive metadata and summary, and by default the full public text fetched live from the platform.',
+      'Get one disclosed report with its archive metadata, summary and the techniques detected in its write-up (tags, payloads, the bypass sentence), and by default the full public text fetched live from the platform.',
       'For HackerOne that is the original write-up (steps to reproduce, requests, payloads, impact) plus the program and researcher summaries.',
       'For Bugcrowd it is the researcher\'s complete disclosure summary; Bugcrowd does not publish the original submission.',
       'Long texts are paged: if the text is truncated, call again with the given offset.',
@@ -367,6 +400,9 @@ export function registerTools(server, getArchive) {
       if (h1?.cvssMetrics) out.push(`CVSS metrics: ${Object.entries(h1.cvssMetrics).map(([k, v]) => `${k}=${v}`).join(', ')}`);
       out.push(`URL: ${r?.url || `https://hackerone.com/reports/${ref}`}`);
       // On Bugcrowd the archive summary is the start of the text fetched below; show it only as a fallback.
+      if (r?.playbook) {
+        out.push('', '## Techniques (detected automatically in the write-up)', ...techniqueLines(r.playbook, { full: true }));
+      }
       if (r?.summary && !(isBugcrowd && live?.summary)) out.push('', isBugcrowd ? '## Summary (first part)' : '## Hacktivity summary', r.summary);
       for (const s of h1?.summaries || []) out.push('', `## Summary by the ${s.by}`, s.text);
     }
@@ -398,6 +434,67 @@ export function registerTools(server, getArchive) {
       if (error) return fail(error);
       if (offset === 0 && live.attachments.length) out.push(`Attachments on HackerOne (not downloaded): ${live.attachments.join(', ')}`);
     }
+    return text(out.join('\n'));
+  });
+
+  tool('list_techniques', {
+    title: 'List attack techniques',
+    description: [
+      'The attack techniques the archive tags reports with (dns-rebinding, csp-bypass, waf-bypass, cloud-metadata, race-condition, prototype-pollution…), grouped by kind: defense bypassed, encoding and evasion, technique, where it happens, impact.',
+      'Each comes with how many reports have it and how many of those show a payload. Narrow it to a bug class or a query to see which techniques show up there, e.g. category="ssrf" or query="webhook".',
+      'Then call search_reports with technique=[id] and has=["payload"] to get the reports that show how it was done.',
+    ].join(' '),
+    inputSchema: {
+      category: z.string().optional().describe('Only reports of this bug class, e.g. ssrf, xss, sqli, idor. See list_categories.'),
+      query: z.string().optional().describe('Only reports matching this search, e.g. "webhook", "graphql", "pdf".'),
+      platform: z.enum(PLATFORM_IDS).optional().describe('Only reports from this platform. Default: both.'),
+    },
+    annotations: { title: 'List attack techniques', ...readOnly, openWorldHint: false },
+  }, ({ db, index }, args) => {
+    let pool = db.reports;
+    const notes = [];
+    if (args.category) {
+      const c = findCategory(db, args.category);
+      if (!c) return fail(`Unknown category "${args.category}". Valid ids: ${db.categories.map((x) => x.id).join(', ')}.`);
+      pool = pool.filter((r) => r.category === c);
+      notes.push(c.name);
+    }
+    if (args.platform) {
+      pool = pool.filter((r) => r.platform === args.platform);
+      notes.push(platformName(args.platform));
+    }
+    const query = (args.query || '').trim();
+    if (query) {
+      const scores = index.search(query);
+      const hit = new Set(db.reports.filter((_, i) => scores[i] > 0));
+      pool = pool.filter((r) => hit.has(r));
+      notes.push(`"${query}"`);
+    }
+    const tagged = pool.filter((r) => r.playbook?.tags?.length);
+    const stats = new Map();
+    for (const r of tagged) {
+      for (const t of r.playbook.tags) {
+        const s = stats.get(t) || { n: 0, payload: 0 };
+        s.n++;
+        if (r.playbook.has?.includes('payload')) s.payload++;
+        stats.set(t, s);
+      }
+    }
+    const what = notes.join(' · ') || 'the whole archive';
+    if (!stats.size) return text(`No tagged techniques in ${what}. Try a broader query or search_reports.`);
+    const out = [`# Attack techniques in ${what}`, `${int(tagged.length)} of ${int(pool.length)} reports carry at least one technique tag.`];
+    const kinds = db.techniqueKinds || {};
+    for (const kind of Object.keys(kinds)) {
+      const rows = db.techniques.filter((t) => t.kind === kind && stats.has(t.id)).sort((a, b) => stats.get(b.id).n - stats.get(a.id).n);
+      if (!rows.length) continue;
+      out.push('', `## ${kinds[kind]}`);
+      for (const t of rows) {
+        const s = stats.get(t.id);
+        out.push(`- ${t.id} — ${t.name}: ${int(s.n)} report${s.n === 1 ? "" : "s"}, ${int(s.payload)} with a payload. ${t.blurb}`);
+      }
+    }
+    out.push('', `Next: search_reports with technique=["<id>"] and has=["payload"]${args.category ? ` and category="${args.category}"` : ''} to read how it was done.`,
+      'Tags are detected automatically from the write-ups: confirm in the report before relying on one.');
     return text(out.join('\n'));
   });
 

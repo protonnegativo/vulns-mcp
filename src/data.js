@@ -1,6 +1,7 @@
 // Loads the Vulns archive: a compact index of every publicly disclosed HackerOne report
-// (reports.json + per-year summaries), the Bugcrowd disclosures (bugcrowd.json) and the
-// category taxonomy.
+// (reports.json + per-year summaries), the Bugcrowd disclosures (bugcrowd.json), the category
+// taxonomy and the technique tags (playbook/<file>.json: techniques, what the write-up contains,
+// payload snippets and the bypass sentence, detected in each report's write-up).
 //
 // Sources, in order of preference:
 //   1. VULNS_DATA_DIR / --data-dir   a local folder with reports.json, taxonomy.json, summaries/,
@@ -47,7 +48,13 @@ async function readFolder(dir) {
   // Bugcrowd disclosures live in their own file (optional: older site builds don't have it).
   const bugcrowdFile = path.join(dir, 'bugcrowd.json');
   const bugcrowd = existsSync(bugcrowdFile) ? await readJson(bugcrowdFile) : null;
-  return { index, taxonomy, summaries, bugcrowd };
+  // The playbook is optional too: older site builds don't have it.
+  const playbook = {};
+  for (const name of index.meta.playbookFiles || []) {
+    const file = path.join(dir, 'playbook', `${name}.json`);
+    if (existsSync(file)) Object.assign(playbook, await readJson(file));
+  }
+  return { index, taxonomy, summaries, bugcrowd, playbook };
 }
 
 // How fresh a copy is: the newest of its HackerOne fetch and its Bugcrowd build.
@@ -80,8 +87,12 @@ async function download(baseUrl, knownFreshness) {
   for (const year of index.meta.summaryYears || []) {
     files[`summaries/${year}.json`] = await fetchJson(`${baseUrl}/summaries/${year}.json`);
   }
+  for (const name of index.meta.playbookFiles || []) {
+    files[`playbook/${name}.json`] = await fetchJson(`${baseUrl}/playbook/${name}.json`);
+  }
   const dir = cacheDir();
   await mkdir(path.join(dir, 'summaries'), { recursive: true });
+  await mkdir(path.join(dir, 'playbook'), { recursive: true });
   // reports.json is written last, so a half-finished download never looks complete.
   const order = Object.keys(files).sort((a, b) => (a === 'reports.json') - (b === 'reports.json'));
   for (const name of order) {
@@ -146,7 +157,7 @@ const dateStr = (int) => {
 export const PLATFORMS = { hackerone: 'HackerOne', bugcrowd: 'Bugcrowd' };
 
 // Turns the compact index into report objects and lookup tables.
-export function decodeArchive({ index, taxonomy, summaries, bugcrowd }) {
+export function decodeArchive({ index, taxonomy, summaries, bugcrowd, playbook = {} }) {
   const col = Object.fromEntries(index.columns.map((name, i) => [name, i]));
   const categories = taxonomy.categories.map((c) => ({ ...c, reports: [] }));
   const topics = taxonomy.topics.map((t) => ({ ...t, reports: [] }));
@@ -186,6 +197,7 @@ export function decodeArchive({ index, taxonomy, summaries, bugcrowd }) {
       cves: row[col.cves] || [],
       topics: reportTopics,
       summary: summaries[row[col.id]] || null,
+      playbook: playbook[String(row[col.id])] || null,
     });
   });
 
@@ -221,6 +233,7 @@ export function decodeArchive({ index, taxonomy, summaries, bugcrowd }) {
         cves: [],
         topics: (row[bc.topics] || []).map((i) => topics[i]).filter(Boolean),
         summary: row[bc.summary] || null,
+        playbook: playbook[String(row[bc.id]).toLowerCase()] || null,
       }));
       platformCounts.bugcrowd++;
     }
@@ -236,5 +249,8 @@ export function decodeArchive({ index, taxonomy, summaries, bugcrowd }) {
       ...(platformCounts.bugcrowd ? { bugcrowd: { count: platformCounts.bugcrowd, updated: bugcrowd.meta?.generatedAt || null } } : {}),
     },
   };
-  return { meta, reports, byId, categories, topics, programs, severities: taxonomy.severities, states: taxonomy.states };
+  return {
+    meta, reports, byId, categories, topics, programs, severities: taxonomy.severities, states: taxonomy.states,
+    techniques: taxonomy.techniques || [], techniqueKinds: taxonomy.techniqueKinds || {},
+  };
 }
