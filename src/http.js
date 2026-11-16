@@ -120,7 +120,7 @@ export function startHttp({ port = 3000, host, getArchive }) {
     server.once('error', reject);
     server.listen(port, host, () => {
       const addr = server.address();
-      log(`vulns-mcp ${pkg.version} ready over HTTP on port ${addr.port} (POST /mcp)`);
+      log(`vulns-mcp ${pkg.version} ready over HTTP on ${typeof addr === 'string' ? addr : `port ${addr.port}`} (POST /mcp)`);
       resolve(server);
     });
   });

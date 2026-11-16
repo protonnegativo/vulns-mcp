@@ -53,7 +53,7 @@ async function main() {
   if (opts.http) {
     // A long-running server looks for newer data every hour.
     const getArchive = openArchive(opts, { refreshEveryMs: 60 * 60 * 1000 });
-    await startHttp({ port: opts.port || Number(process.env.PORT) || 3000, host: opts.host, getArchive });
+    await startHttp({ port: opts.port || process.env.PORT || 3000, host: opts.host, getArchive });
     return;
   }
   const server = createServer(openArchive(opts));
