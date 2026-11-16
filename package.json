@@ -27,7 +27,8 @@
     "test": "node --test",
     "test:network": "VULNS_TEST_NETWORK=1 node --test",
     "inspect": "npx @modelcontextprotocol/inspector node src/index.js",
-    "sync-data": "node scripts/sync-data.mjs"
+    "sync-data": "node scripts/sync-data.mjs",
+    "start:http": "node server.js"
   },
   "keywords": [
     "mcp",
