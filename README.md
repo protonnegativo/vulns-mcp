@@ -25,6 +25,18 @@ agent ▸ search_reports(query: "ssrf webhook", sort: "votes")
 
 ## Install
 
+### No install: the hosted server
+
+Connect any app that accepts an MCP server URL to
+
+```text
+https://mcp.vulns.today/mcp
+```
+
+Streamable HTTP, no sign-in, read-only. In ChatGPT (developer mode) or grok.com, add it as a custom connector; in Claude, under Settings → Connectors; in Claude Code, `claude mcp add --transport http vulns https://mcp.vulns.today/mcp`. It serves the same tools and data as the local server, refreshed every hour.
+
+### Locally, with npx
+
 You need Node.js 18 or newer. `npx` downloads [the package from npm](https://www.npmjs.com/package/vulns-mcp), so there's nothing else to set up. The first start takes a little longer while it downloads; after that it runs from npx's cache.
 
 ### Claude Code
@@ -139,7 +151,7 @@ Restart Claude Desktop after saving.
 
 Any app that runs local MCP servers over stdio (Cline, Zed, Goose…) works: the command is `npx -y vulns-mcp`, and most of them take the `mcpServers` block above.
 
-ChatGPT and grok.com connect only to MCP servers on the internet, by URL. vulns-mcp runs on your machine, so it doesn't work there yet; a hosted version is on the roadmap. (Grok Build, xAI's terminal app, works today: see above.)
+ChatGPT and grok.com connect only to MCP servers on the internet, by URL: use the hosted server above.
 
 ### From source
 
@@ -241,6 +253,10 @@ The reports belong to the researchers who wrote them and to the programs that di
 
 Data last fetched **2026-11-13**.
 
+## Hosting it yourself
+
+`vulns-mcp --http [--port 3000]` (or `node server.js`, which reads `PORT`) serves MCP over Streamable HTTP at `/mcp`: stateless JSON responses, CORS for browser clients, a per-IP request budget, `/health`, and a data refresh every hour. mcp.vulns.today runs exactly this as a Node.js app on Hostinger, redeployed on every push to `main`.
+
 ## Development
 
 ```bash
@@ -280,7 +296,7 @@ test/             end-to-end tests over stdio
 
 - [x] Publish to npm
 - [x] Bugcrowd disclosures next to HackerOne
-- [ ] Remote server over Streamable HTTP, so ChatGPT, Grok and other web apps can connect by URL and nothing needs installing
+- [x] Remote server over Streamable HTTP (https://mcp.vulns.today/mcp), so ChatGPT, Grok and other web apps can connect by URL and nothing needs installing
 - [ ] Semantic search with embeddings, next to BM25
 - [x] Daily data refresh
 - [x] Technique tags, payload snippets and bypass sentences for every report
